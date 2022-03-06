@@ -1,0 +1,524 @@
+---
+title: "Report"
+author: "Raphael Idewele"
+date: "22/02/2022"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r, echo = FALSE}
+#Some libraries 
+#require(ggplot2)
+#require(GGally)
+#require(reshape2)
+#require(lme4)
+#require(dplyr)
+#require(tidyverse)
+#require(Metrics)
+```
+FOREST DATA ANALYSIS AND MODELLING
+
+Introduction
+
+At the core of this task is the need to analyze the situation within the datasets and develop models that can be used in predicting the stem volume in the stand in response to a combination of the independent variables and making predictions on the validation data. This work under consideration is made up of two datasets. These are the modelling datasets and validation datasets  <sup>1,2</sup>. The features in both datasets are: LAT – latitude, LONG - longitude, SP_GROUP – dominant species (1: Scots pine, 2: Norway spruce, 4: Birch and other deciduous), AGE – stand age (years), BA – stand basal area (m2/ha),D – average diameter (cm), H – average height (m), FOREST_TYPE – site fertility class (1: very fertile, 2: fertile, 3: semi-fertile, .., 7: very poor ), VOLUME – stand volume (m3/ha),P0 - Annual precipitation (mm) <sup>3</sup>.However, there is a mismatch between the other fields in the datasets. Thus, the need for data cleaning. Although stand ID was reportedly included, however, it is ostensibly missing from the datasets.
+
+Import Datasets
+
+-Model dataset
+
+```{r}
+data_trees=read.csv2(file = "C://Users//Raph//Documents//Group1.csv", header = T, sep = ",")
+```
+
+-Validation dataset
+
+```{r}
+data_trees_validation=read.csv2(file = "C://Users//Raph//Documents//validating_data.csv", header = T, sep = ",")
+```
+
+Overview:
+-Modelling data (shows 13 features/columns/field in the dataset, 150 samples/rows,instances)
+
+-Validation data (shows 12 features/columns/field in the dataset, 1000 samples/rows)
+
+
+```{r echo=FALSE}
+#str(data_trees_validation)
+
+#head(data_trees)  #tree
+#--------------------------
+#head(data_trees_validation)
+
+#Check if there are na. No missing value
+sum(is.na(data_trees))
+sum(is.na(data_trees_validation))
+```
+
+View features
+
+```{r}
+colnames(data_trees)
+# Observation: "X.1", "X", Are extra fields that are same/ 1 is therefore redundant. 
+colnames(data_trees_validation)
+```
+
+The column N is a distinct feature that is not mentioned in the experimental data. Meanwhile, variables X and X1 should not be used because there is no way to validate a model built on them. Also, N should be omitted as it is absent in the model.
+
+Data Cleaning
+
+Pass data 
+```{r echo=TRUE}
+library(dplyr)
+
+trees <- data_trees
+treesv<-data_trees_validation
+
+```
+
+Drop the columns of the dataframe 
+
+```{r echo=TRUE}
+
+trees<-select(trees,-c(X.1, X)) #Dont use these
+treesv<-select(treesv,-c(N))#Dont use these
+# Use one
+#trees<-subset(trees, select = -c(X.1, X) )
+#treesv<-subset(treesv,select = -c(N) )
+
+```
+
+Data check
+```{r echo=FALSE}
+length(trees) 
+length(treesv)
+
+colnames(trees)
+colnames(treesv)
+```
+
+3. Homogenize the column name,volume
+```{r}
+colnames(trees)[which(colnames(trees) %in% c("TOTAL_VOLUME") )] <- c("VOLUME")
+
+colnames(trees)
+colnames(treesv)
+```
+
+Summary statistics
+
+The inbuilt summary function would have been used but was forgone for describe function of the psch package because of the ease with which it handles character without conversion to factor. Moreover, it gives elegant summary table.
+
+
+```{r}
+library(psych) 
+
+#create summary table. This gives beautiful table(dropped vars, trimmed,mad,range)
+#Summary of modelling data
+
+desct<-describe(trees)
+desctv<-describe(treesv)
+
+subset(desct, select = -c(vars, trimmed,mad,range))
+
+#Summary of validation data
+
+subset(desctv, select = -c(vars, trimmed,mad,range))
+
+```
+
+From tables above, the age of the youngest and oldest tree is 18 and 269 years, whereas the average age for the trees is 66 years. Also, the shortest and tallest tree are 1m and 150m. Also, the smallest and largest diameters are 1cm and 150cm. The average annual rainfall is 328.90mm.
+
+Data type conversion
+
+Some key variable types required for model are characters and not numeric, and thus should be adjusted. Meanwhile, BA, H, D, PO, and TOTAL_VOLUME are cast as double for our data, replace parameter is used to effect the change. For this data conversion, within function could be used too.
+
+
+```{r}
+trees$BA<-as.double(trees$BA, replace=TRUE)
+trees$H<-as.double(trees$H, replace=TRUE)
+trees$D<-as.double(trees$D, replace=TRUE)
+trees$D<-as.double(trees$D, replace=TRUE)
+trees$D<-trees$D*0.01
+trees$P0<-as.double(trees$P0, replace=TRUE)
+trees$VOLUME<-as.double(trees$VOLUME, replace=TRUE)
+trees$SP_GROUP<-as.factor(trees$SP_GROUP)
+trees$FOREST_TYPE<-as.factor(trees$FOREST_TYPE)
+trees$LAT<-as.double(trees$LAT, replace=TRUE)
+trees$LONG<-as.double(trees$LONG, replace=TRUE)
+```
+
+Validation data: treesv
+
+```{r}
+treesv$BA<-as.double(treesv$BA, replace=TRUE)
+treesv$H<-as.double(treesv$H, replace=TRUE)
+treesv$D<-as.double(treesv$D, replace=TRUE)
+treesv$D<-treesv$D*0.01
+treesv$P0<-as.double(treesv$P0, replace=TRUE)
+treesv$VOLUME<-as.double(treesv$VOLUME, replace=TRUE)
+treesv$SP_GROUP<-as.factor(treesv$SP_GROUP)
+treesv$FOREST_TYPE<-as.factor(treesv$FOREST_TYPE)
+treesv$LAT<-as.double(treesv$LAT, replace=TRUE)
+treesv$LONG<-as.double(treesv$LONG, replace=TRUE)
+```
+
+
+Data Visualization 
+
+It is possible to get information on the datasets intuitively and know how to go about modelling them by simply visualizing them. The ggplot2 extension package, GGally, was used to get scatter plots for the numeric fields to see patterns over the datasets. This is favoured in this report because it is easier to get a bird’s-eye view of the datasets without the need to create several individual plots and calculations. The desired features were selected. The modelling and validation datasets showed quite similar pattern (e.g., the most correlated are the same in both datasets). Moreover, the interaction among the independent variables and that with the response variable (stand volume) is conspicuous looking at the chart. Some important observations are:
+
+1.	The sample datasets are for a single year (2010). Thus, the flat nature of year plots. Using unique function on the year field of the datasets confirms this.
+
+2.	Based on the relationship of the response variable to the independent predictors in decreasing order of correlation: BA, H, D are the best whereas others do not show meaningful correlation. Interestingly, longitude is negatively correlated for the modelling dataset. Again, this is probably not significant enough to influence the data.
+
+3.	There is a strong correlation between height and diameter which may be an issue in model development as the assumption on which linear regression models are built is that significant interaction is not expected to exist between the independent variables.
+
+
+```{r echo=TRUE}
+library(GGally)
+trees_sub<-subset(trees, select = -c(SP_GROUP, FOREST_TYPE) )
+treesv_sub<-subset(treesv, select = -c(SP_GROUP, FOREST_TYPE) )
+
+ #Modelling data
+ggpairs(trees_sub)
+
+ #Validation data
+ggpairs(treesv_sub)
+
+```
+
+Volume by species
+
+The way features that are strongly correlated with stand volume are by dominant species are presented below. Considering trees on average by largest size (diameter and height), it is Scots pine followed by Norway spruce. Consequently, by area and volume, it is Scots pine, next is Norway spruce, then Birch and other deciduous are the smallest. Thus, while the bigger trees are from the first two, Birch and other deciduous trees are largely smaller. This view is further supported by the boxplots. This can be useful in making decision on forest operations as it is easy to know from which tree subset a certain volume could be expected. Also, there are few trees that look like outliers with values at the extremes relative to others in the data, but they fit the bid as they are well within the size range for the named trees<sup>4,5</sup>. At the upper end of the spectrum, they are potentially high performing trees.
+
+Again, a look at the histogram shows the plots are approximately bell-shaped and symmetrical around the mean. Therefore, it is right to assume that the considered independent fields fairly approximate a pattern of normal distribution. Comparing these plots with table of summary, the kurtosis is less than zero, so this is a platykurtic distribution and has a thinner tail (light tailed). However, because the skewness of these features is zero except for BA that is slightly right-skewed (skewness= 0.02), the assumption of normal distribution is maintained. Similar symmetry is observed in the test data too but BA in this case is more skewed to the right. 
+
+Lastly, further analysis using the sophisticated tidyverse package’s pipe operator with dplyr’s slice_max and slice_min functions gave some specific interesting findings. First and foremost, the various forests under consideration are in Finland. Additionally, the lowest and the highest points on the map where the forest are using the geographic coordinates are Western Finland (Uusikaupunki and Närpes) and North Karelia region ( Ilomantsi)  respectively. Also, the oldest tree, and the trees with the highest height, largest diameter, area and volume are found in the fertile forest, and not the very fertile one. Besides, the shortest, smallest and largest diameter trees, and those with the largest area and volume are Scots pine but the tallest tree is a Norway spruce. Next, the oldest and youngest trees are also Scots pine, they are however found in not so fertile forest type 3 and 4 respectively. It would have been interesting to know more about the forests because additional information such as the ages of the forests, difference in ages etc. could give further insight and explain observations within the forest types. Finally, the tallest tree is in Kitukankaantie, Jyväskylä while the oldest is in Sodankylä, Lapland.
+
+```{r echo=FALSE}
+par(mfrow=c(1,3))
+ggplot(trees, aes(x=BA, y=VOLUME))+ geom_point(alpha = 0.5, aes(color=SP_GROUP))
+ggplot(trees, aes(x=H, y=VOLUME))+ geom_point(alpha = 0.5, aes(color=SP_GROUP)) 
+ggplot(trees, aes(x=D, y=VOLUME))+ geom_point(alpha = 0.5, aes(color=SP_GROUP))
+
+```
+
+Scatter: plots against volume
+
+
+```{r echo=FALSE}
+par(mfrow=c(1,3))
+plot( trees$BA, trees$VOLUME,xlab = "BA", ylab = 'VOLUME', main="Volume vs. Area")
+plot( trees$H, trees$VOLUME,xlab = "H", ylab = 'VOLUME', main="Volume vs. Height")
+plot( trees$D, trees$VOLUME,xlab = "D", ylab = 'VOLUME', main="Volume vs. Diameter")
+
+```
+
+Histogram: distribution
+
+```{r echo=FALSE}
+par(mfrow=c(1,4))
+
+hist(treesv$H, xlab = 'Height', main ='Height')
+hist(treesv$D, xlab = 'Diameter',main ='Diameter')
+hist(treesv$BA, xlab = 'Area', main ='Area')
+hist(treesv$VOLUME, xlab = 'Volume', main = "Volume")
+```
+
+Boxplot: features by species group
+
+
+```{r echo=FALSE}
+par(mfrow=c(1,4))
+
+boxplot(trees$VOLUME~trees$SP_GROUP, xlab = 'Species', ylab = "Total Volume, m3 ha-1'",main="Volume")
+boxplot(trees$BA~trees$SP_GROUP, xlab = 'Species', ylab = "Basal area",main="Area")
+boxplot(trees$H~trees$SP_GROUP, xlab = 'Species', ylab = "Height", main="Height")
+boxplot(trees$D~trees$SP_GROUP, xlab = 'Species', ylab = "Diameter",main="Diameter")
+```
+
+Further analysis
+
+```{r echo=TRUE}
+library(tidyverse)
+# Record of tallest tree
+
+#trees[which.max(trees$H),]
+#trees[trees$H==max(trees$H)]
+
+trees%>% slice_max(H)
+
+#Shortest tree
+trees%>% slice_min(H)
+
+# largest diameter
+trees%>% slice_max(D)
+
+#Smallest diameter
+trees%>% slice_min(D)
+
+#Oldest tree
+trees%>% slice_max(AGE)
+#Youngest
+trees%>% slice_min(AGE)
+
+#Highest location
+trees%>% slice_max(LONG)
+
+#Lowest location 
+trees%>% slice_min(LONG)
+
+# Largest area
+trees%>% slice_max(BA)
+
+# Largest volume
+trees%>% slice_max(VOLUME)
+
+```
+
+Given it is more difficult to observe change of character/factor across the levels in continuous variables, I decided to turn around and look at the spread of the different continuous variables in every level of the factors. These operations were performed using the melt function of the reshape package in R together with the ubiquitous ggplot2 visualization package. In this way, the distribution of these variables over the three dominant tree species and the forest types is presented below. Clearly, the pattern in distribution is consistent for the variables that are strongly correlated with volume for dominant species, but the opposite is true across forest types. Therefore, if decision is to be taken from the preceding analysis and visualization on what feature to use in building a predictive model, the strongly correlated fields, BA, H, D will stand out as top picks. Contrariwise, longitude can be dropped since it is negatively correlated, by extension, latitude will be unnecessary as they are both pairs denoting geographical location. Furthermore, among discrete variables, forest type can be readily removed too.
+
+```{r echo=TRUE}
+
+library(reshape2)
+treesz<-melt(subset(trees, select = -c(YEAR)), id=c("SP_GROUP", "FOREST_TYPE") )
+```
+
+Boxplot by species
+
+```{r echo=TRUE}
+ggplot(treesz, aes(SP_GROUP, y = value, fill=SP_GROUP)) +
+  geom_boxplot() +
+  facet_wrap(~variable, scales="free_y")
+```
+Boxplot by Forest types
+```{r echo=TRUE}
+
+ggplot(treesz, aes(SP_GROUP, y = value, fill=FOREST_TYPE)) +
+  geom_boxplot() +
+  facet_wrap(~variable, scales="free_y")
+
+```
+
+
+
+Predictive models
+
+The linear models and algorithms used here are from literature<sup>6</sup>. The approach is to first build multiple linear regression models upon all the parameters and use search algorithm stepAIC to select variables that are good enough for these models. For StepAIC to automate the model selection process, and by extension features, using Stepwise Algorithm a certain criterion is used. Akaike Information Criterion (AIC) penalizes models that utilize excessive parameters while tracking that which gives best variation in the dataset. Thus, it gives penalty for making the model complicated than necessary. The stepAIC function is from packages MASS and the companion library car. The variable selections are compared with what we have from the previous analysis and visualization of the data as well as domain knowledge. Subsequently, different linear models are built on these results in order to find the best. 
+
+0. Model lmForest0
+
+```{r echo=TRUE}
+library(MASS)
+library(car)
+lmForest0<-lm(VOLUME~BA+D+H+P0+ SP_GROUP+FOREST_TYPE+LAT+LONG+AGE, data = trees)
+
+summary(lmForest0)
+steplmForest0<-stepAIC(lmForest0, direction = "both")
+
+summary(steplmForest0)
+vif(steplmForest0)
+
+#Plot of residuals
+plot(trees$VOLUME, residuals(steplmForest0),xlab = 'Volume, m3 ha-1', ylab = 'Residuals')
+#plot(trees$VOLUME, residuals(lmForest0),xlab = 'Volume, m3 ha-1', ylab = 'Residuals')
+
+```
+
+1. Model lmForest1
+
+```{r echo=TRUE}
+lmForest1<-lm(VOLUME~ BA+D+H+SP_GROUP,data = trees) #Drop other variables that are poor and negatively correlated
+summary(lmForest1)
+vif(lmForest1)
+
+#Plot of residuals
+plot(trees$VOLUME, residuals(lmForest1),xlab = 'Volume, m3 ha-1', ylab = 'Residuals')
+
+#Validate with test data: treesv. No validation with this search
+#Validate with test data: treesv
+#Validate with test data: treesv
+
+VOLUME_Pred<-predict(lmForest1, treesv)
+#predicted is VOLUME_Pred
+
+
+#Add predicted volume as column to validation data(treesv)
+treesv["Predicted"]<-VOLUME_Pred
+
+#Comparism table
+Volume_comp<-treesv[,c("VOLUME", "Predicted")]
+#Volume_comp
+#plot actual volume vs predicted volume
+
+plot(treesv$VOLUME,treesv$Predicted, xlab = "Actual Volume", ylab = "Predicted Volume")
+#plot(Volume_comp$VOLUME, Volume_comp$Predicted, xlab = "Actual Volume", ylab = "Predicted Volume") #same
+#Add trendline
+abline(lm(treesv$Predicted~treesv$VOLUME))
+
+#Comparison
+library(Metrics)
+bias(actual =Volume_comp[,1] ,predicted =Volume_comp[,2] ) 
+rmse(actual =Volume_comp[,1] ,predicted =Volume_comp[,2]) 
+
+```
+
+II Linear mixed effect model
+2. Model lmForest2
+
+```{r echo=TRUE}
+library(lme4)
+library(sjPlot)
+
+
+lmForest2<-lmer(VOLUME~BA+D+H+ (1|SP_GROUP), data = trees)
+summary(lmForest2)
+tab_model(lmForest2)
+vif(lmForest2)
+
+#Plot of residuals
+plot(trees$VOLUME, residuals(lmForest2),xlab = 'Volume, m3 ha-1', ylab = 'Residuals')
+#Validate with test data: treesv
+
+VOLUME_Pred<-predict(lmForest2, treesv)
+#predicted is VOLUME_Pred
+
+#Add predicted volume as column to validation data(treesv)
+treesv["Predicted"]<-VOLUME_Pred
+
+#Comparism table
+Volume_comp<-treesv[,c("VOLUME", "Predicted")]
+#Volume_comp
+#plot actual volume vs predicted volume
+
+plot(treesv$VOLUME,treesv$Predicted, xlab = "Actual Volume", ylab = "Predicted Volume")
+
+#Add trendline
+abline(lm(treesv$Predicted~treesv$VOLUME))
+
+#Comparison
+bias(actual =Volume_comp[,1] ,predicted =Volume_comp[,2] ) 
+rmse(actual =Volume_comp[,1] ,predicted =Volume_comp[,2]) 
+
+```
+
+III Log model 
+3. Model lmForest3
+
+```{r echo=TRUE}
+lmForest3<-lm(log(VOLUME)~ log(BA)+log(D)+log(H)+SP_GROUP,data = trees) #Drop other variables that are poor and negatively correlated
+summary(lmForest3)
+
+#steplmForest3<-stepAIC(lmForest3, direction = "both")
+
+summary(lmForest3)
+vif(lmForest3)
+
+#Plot of residuals
+plot(trees$VOLUME, residuals(lmForest3),xlab = 'Volume, m3 ha-1', ylab = 'Residuals')
+
+#Validate with test data: treesv
+
+VOLUME_Pred<-exp(predict(lmForest3, treesv))
+#predicted is VOLUME_Pred
+
+
+#Add predicted volume as column to validation data(treesv)
+treesv["Predicted"]<-VOLUME_Pred
+
+#Comparism table
+Volume_comp<-treesv[,c("VOLUME", "Predicted")]
+#Volume_comp
+#plot actual volume vs predicted volume
+
+plot(treesv$VOLUME,treesv$Predicted, xlab = "Actual Volume", ylab = "Predicted Volume")
+#plot(Volume_comp$VOLUME, Volume_comp$Predicted) #same
+#Add trendline
+abline(lm(treesv$Predicted~treesv$VOLUME))
+
+#Volume comparison table for the first five rows
+head(Volume_comp)
+
+#4. Model lmForest4
+
+# No D: to investigate if the supposed multicolinearity between H&D is an issue
+lmForest4<-lm(log(VOLUME)~ log(BA)+log(H)+SP_GROUP,data = trees) #Drop other variables that are poor and negatively correlated
+summary(lmForest3)
+
+#steplmForest4<-stepAIC(lmForest4, direction = "both")
+
+summary(lmForest4)
+vif(lmForest4)
+
+#Plot of residuals
+plot(trees$VOLUME, residuals(lmForest4),xlab = 'Volume, m3 ha-1', ylab = 'Residuals')
+
+#Validate with test data: treesv
+
+VOLUME_Pred<-exp(predict(lmForest4, treesv))
+#predicted is VOLUME_Pred
+
+
+#Add predicted volume as column to validation data(treesv)
+treesv["Predicted"]<-VOLUME_Pred
+
+#Comparism table
+Volume_comp<-treesv[,c("VOLUME", "Predicted")]
+#Volume_comp
+#plot actual volume vs predicted volume
+
+plot(treesv$VOLUME,treesv$Predicted, xlab = "Actual Volume", ylab = "Predicted Volume")
+#plot(Volume_comp$VOLUME, Volume_comp$Predicted) #same
+#Add trendline
+abline(lm(treesv$Predicted~treesv$VOLUME))
+
+#Comparison
+bias(actual =Volume_comp[,1] ,predicted =Volume_comp[,2] ) 
+rmse(actual =Volume_comp[,1] ,predicted =Volume_comp[,2]) 
+
+
+```
+
+
+```{r echo=TRUE}
+#Comparison
+# RMSE Determination based on the best log model
+
+
+bias(actual =Volume_comp[,1] ,predicted =Volume_comp[,2] ) 
+rmse(actual =Volume_comp[,1] ,predicted =Volume_comp[,2]) 
+
+#Volume comparison table for the first five rows
+head(Volume_comp)
+
+```
+
+Discussion
+
+For a start, without preempting which variable to use based on earlier analysis that revealed likelihood of different features being usable in model development for forest data, multiple linear regression model lmForest0 was first built using all the features available in both datasets. This model was lumped into the stepAIC search algorithm to carry out feature selection automatically. Interestingly, in its iterative operation, it first eliminated the poorly and negatively correlated longitude. Subsequently, it excluded latitude, then precipitation level before age. This is in sync with earlier observations from our analysis and visualization. Based on the summary, the other fields are favoured, and from the first iteration are proven to be statistically significant using alpha level of 0.05, as they each have P<0.05. Upon this, model lmForest1 was developed using the remaining features except forest types. Multiple R-squared decreased to 97.36 from 97.59% in the previous model, which by the way was an insignificant difference. The Variance inflation factor(vif) showed there is a chance that there exists multicollinearity, as a value greater than 5 is a good pointer. Thus, this suggests there is possibly a strong interaction between some predictor variables in the model and raises the suspicion of aliased coefficients existing in the model. Markedly, this matches observations from the visualization plots in this report where there was high correlation between the height and diameter. With a closer look at the plot of residuals against the model, it is obvious that there is nonlinearity in the model. This can be confirmed from the plot of predicted volume against actual volume.The Root Mean Square Error (RMSE) and bias values from the lmforest1 are 19.11 and -0.86 respectively.
+
+Furthermore, the preferred fields from the last model (lmForest1) were used in developing the linear mixed model lmForest2 to study how fixed effects (BA, H, D) and random effects (species group) work for this data. Clearly, there was no improvement over previous models. Also, the same linearity problem persists within this succeeding mixed model. Model lmForest2 had rmse value of 19.16 and bias of -0.85.
+
+In addition, linear regression models were developed using logarithmic adjustment to effect correction in the nonlinearity. First, lmForest3 was developed using the same preferred predictor feature selection. This model gave significant improvement over previous models considering the predictor variables explained 99.99% variation in stand volume with a significantly better RMSE and bias of 2.04 and 0.07 respectively. Besides, the model corrected the nonlinearity that burdened earlier models. Moreover, to see if multicollinearity is a real problem, lmForest4 was developed, excluding the diameter, whose inclusion seems to be less significant so far among the preferred fields. Model lmForest4 explained 99.98% variation in volume, and this was a little less than the former. When performing comparison of regression models that use similar dependent variables over the same estimation frame, as the adjusted R-squared increases, the standard error for the due to the aforementioned reduction in R-squared and the relationship between height and diameter does not appear to be problematic, both features can be left in our models. Therefore, we jettison lmForest4 for lmForest3.
+
+In conclusion, lmForest3 is the best model for predicting the stand volume where BA, H,D and SP_Group explains 99.99% variation in volume. In terms of how close the predicted volumes are to the reference volumes, because of its positive bias, it shows that the model overestimates. This means the predictions are higher than the actual volumes on average. In this case, a bias of 0.07 is reasonable as can be seen from the table above. This is better than the previous models, lmforest1 and lmforest2, which underestimate by larger margins. Besides, the smaller the values of RMSE, the smaller the difference between predicted and actual volumes, which means the better the model fits the data. Undoubtedly, lmForest3 (RMSE 2.04) trumps the other examined models using this parameter. There is little heteroscedasticity in the best performing model and some noticeable outliers in the data.
+
+Links: 
+
+1. https://wiki.uef.fi/download/attachments/44434211/Group1.csv?version=1&modificationDate=1479667748000&api=v2
+
+2. https://wiki.uef.fi/download/attachments/44434211/validating_data.csv?version=1&modificationDate=1479668013000&api=v2
+
+3. https://wiki.uef.fi/display/RESMET/Assignment
+
+4. https://conifersociety.org/conifers
+
+5. https://ferriseeds.com/products/paper-birch-betula-papyrifera
+
+6.	Venables, W. N. and Ripley, B. D. (2002) Modern Applied Statistics with S. Fourth edition. Springer
+
+
+
